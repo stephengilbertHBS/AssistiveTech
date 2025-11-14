@@ -6,19 +6,26 @@
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
     
     <style>
-      /* Keep the style for visual clarity */
+      /* Styling for clear visibility and centered layout */
+      body {
+          font-family: Arial, sans-serif;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          margin-top: 20px;
+      }
       #webcam-container {
+        width: 300px; /* Matches forced camera width */
+        height: 200px; /* Matches forced camera height */
+        border: 4px solid #00A9E0; 
         margin: 10px auto;
-        width: 320px;
-        height: 240px;
-        border: 3px solid #00A9E0;
       }
       #label-container {
-        font-size: 28px;
+        font-size: 32px; /* Large font for low-vision/easy reading */
         font-weight: bold;
         text-align: center;
-        color: #CC0000;
-        margin-top: 10px;
+        color: #CC0000; /* High contrast red */
+        margin-top: 15px;
       }
     </style>
 </head>
@@ -27,18 +34,14 @@
     <div id="webcam-container"></div>
     <div id="label-container">LOADING MACHINE LEARNING MODEL...</div>
     
-    <audio id="audio-alert" src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAIBAAEABAA4eGFyegAAAAAAAAAAAENLSUJSAAAAD2RhdGEAAAAoAAAA..." preload="auto"></audio>
-
     <script type="text/javascript">
-        // *** 1. PASTE YOUR UNIQUE MODEL URL HERE ***
+        // --- MODEL CONFIGURATION ---
         const URL = "https://teachablemachine.withgoogle.com/models/qLMkiB_Zn/"; 
-        
-        let model, webcam, labelContainer, maxPredictions;
-        let messageSpoken = false; 
-
-        // --- CONFIGURATION ---
         const COMMUNICATION_MESSAGE = "I need help, please!";
         const CONFIDENCE_THRESHOLD = 0.80; 
+
+        let model, webcam, labelContainer, maxPredictions;
+        let messageSpoken = false; 
 
         // Function to speak the message using the standard browser API
         function speakMessage() {
@@ -53,76 +56,16 @@
             const metadataURL = URL + "metadata.json";
             
             try {
-                // CRITICAL FIX: Requesting a compressed model (uint8)
+                // 1. Load Model (Requesting compressed 'uint8' to solve loading stalls)
                 model = await tmPose.load(modelURL, metadataURL, { quantization: 'uint8' });
                 maxPredictions = model.getTotalClasses();
 
-                // Setup the webcam for video input
-                const size = 200;
+                // Setup the webcam object (size is for the canvas, not the stream)
+                const size = 300; 
                 const flip = true;
                 webcam = new tmPose.Webcam(size, size, flip);
-                await webcam.setup();
+
+                // 2. CRITICAL FIX: Force low resolution for Chromebook compatibility
+                await webcam.setup({ facingMode: "user", width: 300, height: 200 }); 
                 await webcam.play();
-                window.requestAnimationFrame(loop);
-
-                document.getElementById("webcam-container").appendChild(webcam.canvas);
-                labelContainer = document.getElementById("label-container");
-                
-                labelContainer.innerHTML = "Ready! Look at the camera.";
-                
-            } catch (error) {
-                labelContainer.innerHTML = "ERROR: Failed to load model. Check Console (F12).";
-                console.error("Model Loading Error:", error);
-            }
-        }
-
-        async function loop(timestamp) {
-            if (!webcam || !model) {
-                window.requestAnimationFrame(loop);
-                return;
-            }
-            webcam.update();
-            await predict();
-            window.requestAnimationFrame(loop);
-        }
-
-        async function predict() {
-            const { prediction } = await model.predict(webcam.canvas);
-            
-            let highestPrediction = { className: "Unknown", probability: 0 };
-            for (let i = 0; i < maxPredictions; i++) {
-                if (prediction[i].probability > highestPrediction.probability) {
-                    highestPrediction = { 
-                        className: prediction[i].className, 
-                        probability: prediction[i].probability 
-                    };
-                }
-            }
-            
-            labelContainer.innerHTML = highestPrediction.className + " (" + (highestPrediction.probability * 100).toFixed(0) + "%)";
-
-            // LOGIC FOR TWO DIFFERENT TRIGGERS: "Arm UP" OR "Head Tilt"
-            const isTriggerPose = (
-                highestPrediction.className === "Arm UP" ||
-                highestPrediction.className === "Head Tilt"
-            );
-
-            if (isTriggerPose && highestPrediction.probability > CONFIDENCE_THRESHOLD && !messageSpoken) {
-                
-                // Speak the message using the simplified function
-                speakMessage();
-                
-                messageSpoken = true;
-
-                labelContainer.innerHTML = "📢 **MESSAGE SENT!** 📢"; 
-                
-            } else if (highestPrediction.className === "Neutral" && highestPrediction.probability > CONFIDENCE_THRESHOLD) {
-                messageSpoken = false;
-                
-            }
-        }
-
-        window.addEventListener('load', init);
-    </script>
-</body>
-</html>
+                window.requestAnimationFrame(
