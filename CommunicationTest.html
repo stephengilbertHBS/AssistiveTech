@@ -1,0 +1,124 @@
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/p5.speech@0.2.7/lib/p5.speech.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/p5js-wrapper@1.0.0/p5js-wrapper.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
+
+<style>
+  /* Keeps the video preview box small and centered */
+  #webcam-container {
+    margin: 10px auto;
+    width: 320px;
+    height: 240px;
+    border: 3px solid #00A9E0; /* Simple border for visibility */
+  }
+  #label-container {
+    font-size: 28px;
+    font-weight: bold;
+    text-align: center;
+    /* Use a high-contrast color for easy reading */
+    color: #CC0000; 
+    margin-top: 10px;
+  }
+</style>
+
+<div id="webcam-container"></div>
+<div id="label-container">LOADING MACHINE LEARNING MODEL...</div>
+
+<script type="text/javascript">
+    // *** 1. PASTE YOUR UNIQUE MODEL URL HERE ***
+    const URL = "https://teachablemachine.withgoogle.com/models/qLMkiB_Zn/"; 
+    
+    let model, webcam, labelContainer, maxPredictions;
+    let messageSpoken = false; 
+    let speech;
+
+    // --- CONFIGURATION ---
+    const COMMUNICATION_MESSAGE = "I need help, please!";
+    const CONFIDENCE_THRESHOLD = 0.80; // Lowered to 80% for easier, more immediate student triggering.
+
+    async function init() {
+        const modelURL = URL + "model.json";
+        const metadataURL = URL + "metadata.json";
+        
+        try {
+            // *** 2. CRITICAL FIX: Requesting a compressed model (uint8) to speed up loading. ***
+            model = await tmPose.load(modelURL, metadataURL, { quantization: 'uint8' });
+            maxPredictions = model.getTotalClasses();
+
+            // Setup the webcam for video input
+            const size = 200;
+            const flip = true;
+            webcam = new tmPose.Webcam(size, size, flip);
+            await webcam.setup();
+            await webcam.play();
+            window.requestAnimationFrame(loop);
+
+            document.getElementById("webcam-container").appendChild(webcam.canvas);
+            labelContainer = document.getElementById("label-container");
+            
+            // Set up text-to-speech
+            speech = new p5.Speech();
+            labelContainer.innerHTML = "Ready! Look at the camera.";
+            
+        } catch (error) {
+            // If the model load fails, show the error clearly for diagnosis
+            labelContainer.innerHTML = "ERROR: Failed to load model. Check Console (F12).";
+            console.error("Model Loading Error:", error);
+        }
+    }
+
+    async function loop(timestamp) {
+        if (!webcam || !model) {
+            window.requestAnimationFrame(loop);
+            return;
+        }
+        webcam.update();
+        await predict();
+        window.requestAnimationFrame(loop);
+    }
+
+    async function predict() {
+        const { pose, prediction } = await model.predict(webcam.canvas);
+        
+        let highestPrediction = { className: "Unknown", probability: 0 };
+        for (let i = 0; i < maxPredictions; i++) {
+            if (prediction[i].probability > highestPrediction.probability) {
+                highestPrediction = { 
+                    className: prediction[i].className, 
+                    probability: prediction[i].probability 
+                };
+            }
+        }
+        
+        // Show the current best guess on the screen
+        labelContainer.innerHTML = highestPrediction.className + " (" + (highestPrediction.probability * 100).toFixed(0) + "%)";
+
+        // *** 3. LOGIC FOR TWO DIFFERENT TRIGGERS: "Arm UP" OR "Head Tilt" ***
+        
+        const isTriggerPose = (
+            highestPrediction.className === "Arm UP" ||
+            highestPrediction.className === "Head Tilt"
+        );
+
+        if (isTriggerPose && highestPrediction.probability > CONFIDENCE_THRESHOLD && !messageSpoken) {
+            
+            // Speak the message!
+            speech.speak(COMMUNICATION_MESSAGE);
+            
+            // Set the flag to true so it only speaks once per movement
+            messageSpoken = true;
+
+            // Give visual feedback that the message was sent
+            labelContainer.innerHTML = "📢 **MESSAGE SENT!** 📢"; 
+            
+        } else if (highestPrediction.className === "Neutral" && highestPrediction.probability > CONFIDENCE_THRESHOLD) {
+            // Reset the spoken flag when the student returns to the NEUTRAL position
+            messageSpoken = false;
+            
+        }
+    }
+
+    // Initialize the whole setup when the page loads
+    window.addEventListener('load', init);
+</script>
