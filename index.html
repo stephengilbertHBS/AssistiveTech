@@ -15,6 +15,7 @@
           margin-top: 20px;
       }
       #webcam-container {
+        /* Set a fixed size for the canvas */
         width: 300px;
         height: 200px;
         border: 4px solid #00A9E0; 
@@ -57,7 +58,7 @@
             const metadataURL = URL + "metadata.json";
             
             try {
-                // 1. Load Model (Requesting compressed 'uint8' to solve loading stalls)
+                // 1. Load Model (Requesting compressed 'uint8' to solve initial loading stalls)
                 model = await tmPose.load(modelURL, metadataURL, { quantization: 'uint8' });
                 maxPredictions = model.getTotalClasses();
 
@@ -66,13 +67,9 @@
                 const flip = true;
                 webcam = new tmPose.Webcam(size, size, flip);
 
-                // 2. CRITICAL FIX: Force low resolution and max frame rate for stability on Chromebooks
-                await webcam.setup({ 
-                    facingMode: "user", 
-                    width: 300, 
-                    height: 200, 
-                    frameRate: { max: 10 } // Forces a stable, low FPS
-                }); 
+                // 2. STABLE FIX: Use the most basic setup call to prevent conflicts
+                await webcam.setup(); 
+                
                 await webcam.play();
                 window.requestAnimationFrame(loop);
 
@@ -82,10 +79,62 @@
                 labelContainer.innerHTML = "Ready! Look at the camera.";
                 
             } catch (error) {
+                // If model fails to load, this error message will appear.
                 labelContainer.innerHTML = "ERROR: Failed to load model. Check Console (F12).";
                 console.error("Model Loading Error:", error);
             }
         }
 
         async function loop(timestamp) {
-            if (!webcam || !
+            if (!webcam || !model) {
+                window.requestAnimationFrame(loop);
+                return;
+            }
+            // Update the webcam frame before prediction
+            webcam.update();
+            await predict();
+            window.requestAnimationFrame(loop);
+        }
+
+        async function predict() {
+            // Get the prediction from the model
+            const { prediction } = await model.predict(webcam.canvas);
+            
+            let highestPrediction = { className: "Unknown", probability: 0 };
+            for (let i = 0; i < maxPredictions; i++) {
+                if (prediction[i].probability > highestPrediction.probability) {
+                    highestPrediction = { 
+                        className: prediction[i].className, 
+                        probability: prediction[i].probability 
+                    };
+                }
+            }
+            
+            // Display current prediction
+            labelContainer.innerHTML = highestPrediction.className + " (" + (highestPrediction.probability * 100).toFixed(0) + "%)";
+
+            // Logic to trigger the communication message
+            const isTriggerPose = (
+                highestPrediction.className === "Arm UP" ||
+                highestPrediction.className === "Head Tilt"
+            );
+
+            if (isTriggerPose && highestPrediction.probability > CONFIDENCE_THRESHOLD && !messageSpoken) {
+                
+                speakMessage();
+                
+                messageSpoken = true;
+
+                labelContainer.innerHTML = "📢 **MESSAGE SENT!** 📢"; 
+                
+            } else if (highestPrediction.className === "Neutral" && highestPrediction.probability > CONFIDENCE_THRESHOLD) {
+                // Reset flag when back to neutral
+                messageSpoken = false;
+                
+            }
+        }
+
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
