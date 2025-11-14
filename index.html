@@ -15,8 +15,8 @@
           margin-top: 20px;
       }
       #webcam-container {
-        width: 300px; /* Matches forced camera width */
-        height: 200px; /* Matches forced camera height */
+        width: 300px;
+        height: 200px;
         border: 4px solid #00A9E0; 
         margin: 10px auto;
       }
@@ -36,6 +36,7 @@
     
     <script type="text/javascript">
         // --- MODEL CONFIGURATION ---
+        // Your specific model URL
         const URL = "https://teachablemachine.withgoogle.com/models/qLMkiB_Zn/"; 
         const COMMUNICATION_MESSAGE = "I need help, please!";
         const CONFIDENCE_THRESHOLD = 0.80; 
@@ -65,7 +66,26 @@
                 const flip = true;
                 webcam = new tmPose.Webcam(size, size, flip);
 
-                // 2. CRITICAL FIX: Force low resolution for Chromebook compatibility
-                await webcam.setup({ facingMode: "user", width: 300, height: 200 }); 
+                // 2. CRITICAL FIX: Force low resolution and max frame rate for stability on Chromebooks
+                await webcam.setup({ 
+                    facingMode: "user", 
+                    width: 300, 
+                    height: 200, 
+                    frameRate: { max: 10 } // Forces a stable, low FPS
+                }); 
                 await webcam.play();
-                window.requestAnimationFrame(
+                window.requestAnimationFrame(loop);
+
+                document.getElementById("webcam-container").appendChild(webcam.canvas);
+                labelContainer = document.getElementById("label-container");
+                
+                labelContainer.innerHTML = "Ready! Look at the camera.";
+                
+            } catch (error) {
+                labelContainer.innerHTML = "ERROR: Failed to load model. Check Console (F12).";
+                console.error("Model Loading Error:", error);
+            }
+        }
+
+        async function loop(timestamp) {
+            if (!webcam || !
