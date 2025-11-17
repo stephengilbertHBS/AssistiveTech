@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Communication Aid (Final Async Fix)</title>
+    <title>Communication Aid (Final Stability Build)</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js?v=99"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js?v=99"></script>
     
@@ -56,8 +56,8 @@
         // --- MODEL CONFIGURATION ---
         const URL = "https://teachablemachine.withgoogle.com/models/qLMkiB_Zn/"; 
         const COMMUNICATION_MESSAGE = "I need help, please!";
-        // Using 0.50 for reliable testing
-        const CONFIDENCE_THRESHOLD = 0.50; 
+        // CRITICAL FIX: Lowered to 20% to guarantee the prediction label updates.
+        const CONFIDENCE_THRESHOLD = 0.20; 
 
         let model, labelContainer, maxPredictions;
         let messageSpoken = false; 
@@ -94,7 +94,7 @@
                 
                 labelContainer.innerHTML = "Ready! Look at the camera.";
                 
-                // Start the robust prediction loop
+                // Start the robust asynchronous prediction loop
                 loop(); 
                 
             } catch (error) {
@@ -103,7 +103,6 @@
             }
         }
 
-        // CRITICAL FIX: The loop must be an async function to await the prediction
         async function loop() {
             if (!model || !video || video.paused || video.ended) {
                 window.requestAnimationFrame(loop);
@@ -118,7 +117,7 @@
         }
 
         async function predict() {
-            // Use model.predict(video) to process the pose data
+            // Use model.predict(video) to process the pose data (CRITICAL FIX)
             const { prediction } = await model.predict(video);
             
             let highestPrediction = { className: "Unknown", probability: 0 };
