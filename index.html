@@ -1,12 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Communication Aid (Pose Data Fix)</title>
+    <title>Communication Aid (Final Async Fix)</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
     
     <style>
-      /* Styling for clear visibility and centered layout */
       body {
           font-family: Arial, sans-serif;
           display: flex;
@@ -21,7 +20,7 @@
       #video-display-container {
         width: 300px; 
         height: 200px;
-        border: 4px solid #CC0000; 
+        border: 4px solid #CC0000;
         margin: 10px auto;
         position: relative;
         overflow: hidden;
@@ -57,7 +56,7 @@
         // --- MODEL CONFIGURATION ---
         const URL = "https://teachablemachine.withgoogle.com/models/qLMkiB_Zn/"; 
         const COMMUNICATION_MESSAGE = "I need help, please!";
-        // Lowered for reliable testing after the initial crash
+        // Using 0.50 for reliable testing
         const CONFIDENCE_THRESHOLD = 0.50; 
 
         let model, labelContainer, maxPredictions;
@@ -88,37 +87,38 @@
                 
                 await new Promise(resolve => {
                     video.onloadedmetadata = () => {
-                        // CRITICAL: Ensure the video element starts playing
                         video.play();
                         resolve(video);
                     };
                 });
                 
                 labelContainer.innerHTML = "Ready! Look at the camera.";
-                window.requestAnimationFrame(loop);
+                
+                // Start the robust prediction loop
+                loop(); 
                 
             } catch (error) {
-                labelContainer.innerHTML = "ERROR: Cannot start video feed. Check permissions.";
+                labelContainer.innerHTML = "ERROR: Cannot start video feed. Check Console.";
                 console.error("Initialization Error:", error);
             }
         }
 
-        function loop() {
-            // No need to manually draw canvas here, tmPose handles it internally
+        // CRITICAL FIX: The loop must be an async function to await the prediction
+        async function loop() {
             if (!model || !video || video.paused || video.ended) {
                 window.requestAnimationFrame(loop);
                 return;
             }
             
-            predict();
+            // Wait for the prediction to complete before running the next frame
+            await predict();
+            
+            // Call the next frame
             window.requestAnimationFrame(loop);
         }
 
         async function predict() {
-            // **** CRITICAL FIX HERE ****
-            // We use the model.predict(video) function directly, 
-            // which tells tmPose to find the pose in the video frame, 
-            // extract the 14739 data points, and then predict.
+            // Use model.predict(video) to process the pose data
             const { prediction } = await model.predict(video);
             
             let highestPrediction = { className: "Unknown", probability: 0 };
@@ -131,8 +131,10 @@
                 }
             }
             
+            // Update the display label
             labelContainer.innerHTML = highestPrediction.className + " (" + (highestPrediction.probability * 100).toFixed(0) + "%)";
 
+            // Logic to trigger the communication message
             const isTriggerPose = (
                 highestPrediction.className === "Arm UP" ||
                 highestPrediction.className === "Head Tilt"
