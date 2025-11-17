@@ -1,12 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Communication Aid</title>
+    <title>Communication Aid (HTML5 Fix)</title>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
     
     <style>
-      /* Styling for clear visibility and centered layout */
       body {
           font-family: Arial, sans-serif;
           display: flex;
@@ -15,18 +14,24 @@
           margin-top: 20px;
       }
       #webcam-container {
-        /* Set fixed size and force it to act as a block element */
-        width: 300px;
-        height: 200px;
-        border: 4px solid #00A9E0; 
-        margin: 10px auto;
-        /* CRITICAL LAYOUT FIX */
-        display: block; 
+        /* CRITICAL: Hides the canvas used for prediction */
+        display: none; 
       }
-      /* CRITICAL LAYOUT FIX: Ensures the canvas is a block and the text is below it */
-      #webcam-container canvas {
-          display: block; 
-          margin: 0 auto;
+      #video-display-container {
+        width: 300px; 
+        height: 200px;
+        border: 4px solid #CC0000; /* New border to show the active video element */
+        margin: 10px auto;
+        position: relative;
+        overflow: hidden;
+      }
+      /* Style the standard HTML video element */
+      #video-element {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        /* Flip the video horizontally to mirror the user */
+        transform: scaleX(-1); 
       }
       #label-container {
         font-size: 32px; 
@@ -34,15 +39,19 @@
         text-align: center;
         color: #CC0000; 
         margin-top: 15px;
-        /* CRITICAL LAYOUT FIX */
-        width: 300px; /* Same width as canvas for alignment */
+        width: 300px;
       }
     </style>
 </head>
 <body>
     
+    <div id="video-display-container">
+        <video id="video-element" autoplay playsinline muted></video>
+    </div>
+    
     <div id="webcam-container"></div>
-    <div id="label-container">LOADING MACHINE LEARNING MODEL...</div>
+    
+    <div id="label-container">LOADING MODEL...</div>
     
     <script type="text/javascript">
         // --- MODEL CONFIGURATION ---
@@ -50,8 +59,10 @@
         const COMMUNICATION_MESSAGE = "I need help, please!";
         const CONFIDENCE_THRESHOLD = 0.80; 
 
-        let model, webcam, labelContainer, maxPredictions;
+        let model, labelContainer, maxPredictions;
         let messageSpoken = false; 
+        let video; // Reference to the HTML <video> element
+        let canvas; // Reference to the canvas where prediction happens
 
         function speakMessage() {
             if ('speechSynthesis' in window) {
@@ -63,60 +74,62 @@
         async function init() {
             const modelURL = URL + "model.json";
             const metadataURL = URL + "metadata.json";
+            labelContainer = document.getElementById("label-container");
+            video = document.getElementById("video-element");
             
             try {
                 // 1. Load Model
                 model = await tmPose.load(modelURL, metadataURL, { quantization: 'uint8' });
                 maxPredictions = model.getTotalClasses();
 
-                // Setup the webcam object
-                const size = 300; 
-                const flip = true;
-                webcam = new tmPose.Webcam(size, size, flip);
-
-                // 2. STABLE FIX: Use the most basic setup call
-                await webcam.setup(); 
+                // 2. Start standard HTML5 Video Stream
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
                 
-                await webcam.play();
-                window.requestAnimationFrame(loop);
-
-                document.getElementById("webcam-container").appendChild(webcam.canvas);
-                labelContainer = document.getElementById("label-container");
+                // Wait for video stream to actually load
+                await new Promise(resolve => {
+                    video.onloadedmetadata = () => {
+                        resolve(video);
+                    };
+                });
                 
+                // Create a hidden canvas to feed the video frames to the TM model
+                canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                document.getElementById("webcam-container").appendChild(canvas);
+
                 labelContainer.innerHTML = "Ready! Look at the camera.";
+                window.requestAnimationFrame(loop);
                 
-                // CRITICAL STREAM RESTART ATTEMPT
-                setTimeout(attemptStreamRestart, 3000); 
-
             } catch (error) {
-                labelContainer.innerHTML = "ERROR: Failed to load model. Check Console (F12).";
-                console.error("Model Loading Error:", error);
-            }
-        }
-        
-        // Function to attempt restarting the video stream after a delay
-        function attemptStreamRestart() {
-            if (webcam && webcam.canvas && !webcam.stream.active) {
-                console.log("Attempting stream restart...");
-                // Note: The library doesn't expose a simple restart, so we force a pause/play.
-                webcam.pause(); 
-                webcam.play();
+                labelContainer.innerHTML = "ERROR: Cannot start video feed. Check permissions.";
+                console.error("Initialization Error:", error);
             }
         }
 
-        async function loop(timestamp) {
-            if (!webcam || !model) {
+        function loop() {
+            if (!model || !video || video.paused || video.ended) {
                 window.requestAnimationFrame(loop);
                 return;
             }
-            // Update the webcam frame before prediction
-            webcam.update();
-            await predict();
+            
+            // Draw the current video frame onto the hidden canvas
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            // Flip the image horizontally on the canvas to match the user's view
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+            ctx.restore();
+
+            predict();
             window.requestAnimationFrame(loop);
         }
 
         async function predict() {
-            const { prediction } = await model.predict(webcam.canvas);
+            // Predict using the hidden canvas element
+            const { prediction } = await model.predict(canvas);
             
             let highestPrediction = { className: "Unknown", probability: 0 };
             for (let i = 0; i < maxPredictions; i++) {
@@ -128,7 +141,6 @@
                 }
             }
             
-            // Display current prediction
             labelContainer.innerHTML = highestPrediction.className + " (" + (highestPrediction.probability * 100).toFixed(0) + "%)";
 
             const isTriggerPose = (
@@ -139,14 +151,11 @@
             if (isTriggerPose && highestPrediction.probability > CONFIDENCE_THRESHOLD && !messageSpoken) {
                 
                 speakMessage();
-                
                 messageSpoken = true;
-
                 labelContainer.innerHTML = "📢 **MESSAGE SENT!** 📢"; 
                 
             } else if (highestPrediction.className === "Neutral" && highestPrediction.probability > CONFIDENCE_THRESHOLD) {
                 messageSpoken = false;
-                
             }
         }
 
